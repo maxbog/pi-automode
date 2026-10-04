@@ -144,6 +144,7 @@ export function createFakeCtx(entries: any[] = [], overrides: Record<string, unk
 export function baseConfig(overrides: Partial<EffectiveConfig> = {}): EffectiveConfig {
 	return {
 		enabled: true,
+		anthropicServerAuto: "off",
 		classifyReadOnlyTools: false,
 		allowInsideWorkingDirectory: false,
 		deniedPaths: [],
@@ -177,6 +178,7 @@ export function baseState(overrides: Partial<AutoModeState> = {}): AutoModeState
 
 export async function setupHookTest(options: {
 	config?: EffectiveConfig;
+	loadConfig?: () => EffectiveConfig;
 	classifier?: () => Promise<ClassificationDecision>;
 	ctx?: ReturnType<typeof createFakeCtx>;
 	analyze?: typeof analyzeBash;
@@ -185,7 +187,7 @@ export async function setupHookTest(options: {
 	let classifierCalls = 0;
 	const classifier = options.classifier ?? (async () => ({ decision: "allow", tier: "none", reason: "test allow" }));
 	createPiAutomode({
-		loadConfig: () => options.config ?? baseConfig(),
+		loadConfig: () => options.loadConfig?.() ?? options.config ?? baseConfig(),
 		classifyAction: async () => {
 			classifierCalls += 1;
 			return classifier();

@@ -16,6 +16,73 @@ Shared project `.pi/automode.json` cannot weaken auto mode. For a trusted projec
 
 The shared file cannot set `autoMode` or add `permissions.allow` rules. If the file contains `permissions.allow`, `/automode config` reports a diagnostic.
 
+## Anthropic server Auto (experimental)
+
+The integration is disabled by default. Enable it in a user-owned configuration source:
+
+```json
+{
+  "autoMode": {
+    "anthropicServerAuto": "prefer"
+  }
+}
+```
+
+`autoMode.anthropicServerAuto` accepts:
+
+- `"off"` (default) — use the existing pi-automode classifier.
+- `"prefer"` — use Anthropic server review when available; if the current Anthropic session is established as unsupported, use the local classifier.
+- `"confirm-fallback"` — use Anthropic server review when available; if the current Anthropic session is established as unsupported, ask once before using the local classifier.
+
+`autoMode.enabled` must also be true.
+
+Only eligible models from the direct `anthropic` provider using the `anthropic-messages` API are augmented: Sonnet/Opus 4.6+ and eligible Fable models. Claude models accessed through GitHub Copilot continue through the local classifier.
+
+### Negotiation and fallback
+
+Negotiation happens in-band on ordinary eligible Anthropic Messages requests; pi-automode does not send a separate capability probe.
+
+A provider session begins in `unknown` and becomes `probing` when pi-automode sends its first server-Auto request. A valid correlated `dangerous_tool_use` review makes the session `active`.
+
+While probing, if a tool call reaches the semantic-review stage and its completed response contains no `dangerous_tool_use` review material, that Anthropic endpoint is marked `unsupported` for the current Pi session. Text-only responses and actions resolved entirely by local deterministic rules do not establish that server review is unsupported.
+
+When the session is `unsupported`, `"prefer"` uses the normal local classifier and `"confirm-fallback"` asks once before doing so. Without UI, or after declining, `"confirm-fallback"` blocks. The fallback decision is remembered only for the current runtime session.
+
+In an `active` session, a missing, malformed, unknown, non-available, or mismatched per-action verdict blocks that action and does not switch the session to the local classifier.
+
+If pi-automode cannot safely decorate the provider request, any classifier-routed tool call from that response fails closed. This is treated as an integration incompatibility, not as evidence that Anthropic server review is unsupported.
+
+If the provider or gateway rejects the beta or safeguard request itself, pi-automode does not replay the model turn through the local classifier; the provider error is surfaced normally.
+
+### Request and policy context
+
+For eligible requests, the extension appends `dangerous-tool-use-2026-09-03` to Pi's existing beta list without reordering or deduplicating unrelated values and adds the `dangerous_tool_use` safeguard. Existing unrelated safeguards are preserved.
+
+The safeguard classifier context sends the effective pi-automode policy lists under `auto_mode`:
+
+- `environment`
+- `allow`
+- `soft_deny`
+- `hard_deny`
+
+The observed context fields `v`, `permission_mode`, `live_cwd`, `home_dir`, and `platform` are sent at the classifier-context root.
+
+Pi-automode does not add Git state, trusted-directory structures, project instruction-file contents, transcripts, tool results, or authentication material. Pi continues to own provider authentication, streaming, tool execution, and rendering.
+
+### Local policy precedence
+
+Local permission denies, deterministic hard-denies, and path denials remain authoritative. Existing local allow/read-only tiers keep their normal precedence.
+
+If a `permissions.ask` rule matches and the user approves continuing, the action proceeds to the selected semantic backend. A correlated `not_flagged` server result passes that semantic-review stage without making a second classifier request. A correlated `flagged` result blocks.
+
+### Runtime status
+
+`/automode status` and `automode_inspect` report the configured mode, runtime state (`unknown`, `probing`, `active`, or `unsupported`), and fallback decision (`none`, `local-approved`, or `local-declined`).
+
+Server capability and fallback state are runtime-only, keyed by the direct Anthropic provider/API/endpoint, and are not persisted with conversation state. Opening or restoring a Pi session starts negotiation from `unknown`.
+
+The provider request/stream hooks used by this feature require Pi 1.0.0 or newer. Anthropic's safeguard protocol and outcome values are experimental and are not treated as a stable public API.
+
 To disable pi-automode for the current project, create or edit `.pi/automode.local.json`:
 
 ```json
