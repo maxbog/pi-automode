@@ -18,11 +18,13 @@ For each Pi `tool_call` event, the extension does this:
 10. Run path-deny checks, including recursive search scopes and symlink aliases.
 11. If an ask rule was accepted, skip all deterministic allow tiers.
 12. Otherwise, apply the inside-working-directory, `permissions.allow`, and read-only tiers in that order.
-13. Send every remaining action through a one-token conservative filter.
-14. If the filter requests review, run structured classifier review.
+13. Send every remaining action to the selected semantic-review backend.
+14. For the local classifier, run the one-token filter and structured review as needed. For eligible direct Anthropic sessions with server Auto enabled, consume Anthropic's correlated server review instead.
 15. Persist state and update the UI status and denial history.
 
-The default posture is fail-closed. If model resolution, authentication, a classifier call, or response parsing fails, pi-automode blocks the action.
+The default posture is fail-closed. If semantic review cannot produce a usable decision, pi-automode blocks the action.
+
+The diagram below shows the local-classifier path. Anthropic server Auto replaces that semantic-review stage for eligible direct Anthropic sessions; see [Anthropic server Auto backend](#anthropic-server-auto-backend).
 
 ## Diagram
 
@@ -232,6 +234,79 @@ Two optional features add a direct-write path for non-protected targets. `allowI
 Both features keep protected targets on the classifier route. `deniedPaths` can block these targets before classifier review.
 
 Deterministic safety-control checks still resolve paths canonically before classification. This catches writes through symlinks to auto-mode controls, shell profiles, and SSH authorization files without relying on the model.
+
+## Anthropic server Auto backend
+
+For eligible direct Anthropic `anthropic-messages` sessions, `autoMode.anthropicServerAuto` can replace the local classifier stage with Anthropic's server-side tool-use review. The permission, deterministic-deny, path-deny, and local allow tiers described above still run first.
+
+Claude models accessed through GitHub Copilot are not eligible and continue through the local classifier.
+
+### Request decoration
+
+Before an eligible provider request, pi-automode augments Pi's normal Anthropic Messages payload. It appends the `dangerous-tool-use-2026-09-03` beta without reordering or deduplicating unrelated beta values and adds a `dangerous_tool_use` safeguard. Existing unrelated safeguards are preserved.
+
+The safeguard classifier context includes these root fields:
+
+- `v: 1`
+- `permission_mode: "auto"`
+- `live_cwd`
+- `home_dir`
+- `platform`
+
+Its `auto_mode` object contains the effective pi-automode policy lists:
+
+- `environment`
+- `allow`
+- `soft_deny`
+- `hard_deny`
+
+Pi-automode does not add Git state, trusted-directory structures, project instruction-file contents, a second transcript, tool results, or authentication material. Pi continues to own provider authentication, request transport, streaming, tool execution, and rendering.
+
+If the request already contains a `dangerous_tool_use` safeguard, pi-automode updates the known classifier-context fields and preserves unrelated fields. If the existing beta or safeguard fields have an incompatible shape, pi-automode does not rewrite them.
+
+### Capability negotiation
+
+Pi-automode does not send a separate capability request. Negotiation happens on normal eligible Anthropic Messages requests.
+
+Capability state is scoped to the direct Anthropic provider/API/endpoint and is runtime-only:
+
+- `unknown` — no server-Auto request has been sent for this endpoint.
+- `probing` — pi-automode sent a server-Auto request, but support has not yet been established.
+- `active` — the endpoint returned a valid `dangerous_tool_use` review.
+- `unsupported` — while probing, a tool call reached semantic review after a completed response that contained no `dangerous_tool_use` review material.
+
+A text-only response does not mark the endpoint unsupported. Neither does a tool call that a local permission or deterministic tier resolves before semantic review.
+
+Opening, resuming, forking, or otherwise starting a Pi session resets server-Auto capability and fallback state to `unknown`.
+
+### Result correlation and fail-closed behavior
+
+Pi-automode reads `safeguard_results` from Anthropic provider stream events and correlates each review to Pi's native tool-use ID.
+
+For a correlated `dangerous_tool_use` result:
+
+- `not_flagged` passes the semantic-review stage.
+- `flagged` blocks the action.
+- a missing, malformed, unknown, non-available, or mismatched verdict blocks the action.
+
+Unrelated safeguard types and malformed unrelated list entries are ignored. Repeated identical verdicts are idempotent. Conflicting verdicts for the same tool-use ID fail closed.
+
+Once a session is `active`, an unusable verdict blocks only that action. It does not demote the session or switch that action to the local classifier.
+
+A usable server verdict skips pi-automode's local classifier request. Tool execution still follows Pi's normal tool path after semantic approval.
+
+### Unsupported-session fallback
+
+When the session becomes `unsupported`:
+
+- `"prefer"` uses the normal local classifier for the rest of that provider session.
+- `"confirm-fallback"` asks once before using the local classifier. If no UI is available, or the user declines, classifier-routed actions block.
+
+The fallback decision is remembered only for the current runtime session.
+
+If pi-automode cannot safely decorate an eligible provider request, a classifier-routed tool call from that response fails closed. This is treated as an integration incompatibility, not as evidence that Anthropic server review is unsupported.
+
+If the provider or gateway rejects the beta or safeguard request itself, pi-automode surfaces the provider error. It does not replay that model turn through the local classifier.
 
 ## What is sent to the classifier
 

@@ -50,10 +50,19 @@ export type ClassifierUsageLogEntry = {
   };
 };
 
+/** A session-level diagnostic that is not tied to one tool decision. */
+export type DiagnosticLogEntry = {
+  type: "diagnostic";
+  ts: string;
+  code: string;
+  message: string;
+};
+
 export type LogEntry =
   | DecisionLogEntry
   | ClassifierLogEntry
-  | ClassifierUsageLogEntry;
+  | ClassifierUsageLogEntry
+  | DiagnosticLogEntry;
 
 export type Logger = {
   enabled: boolean;

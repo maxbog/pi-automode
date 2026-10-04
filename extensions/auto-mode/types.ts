@@ -36,8 +36,25 @@ export type LogConfig = {
   classifierIo: boolean;
 };
 
+export type AnthropicServerAutoState =
+  | "unknown"
+  | "probing"
+  | "active"
+  | "unsupported";
+
+export type AnthropicServerAutoMode =
+  | "off"
+  | "prefer"
+  | "confirm-fallback";
+
+export type AnthropicServerAutoFallbackDecision =
+  | "none"
+  | "local-approved"
+  | "local-declined";
+
 export type AutoModeSettings = {
   enabled?: boolean;
+  anthropicServerAuto?: AnthropicServerAutoMode;
   classifierModel?: string;
   classifierReasoningLevel?: ClassifierReasoningLevel;
   /** When true, read-only tools (read/grep/find/ls) are classified instead of auto-allowed. */
@@ -89,6 +106,7 @@ export type ToolPattern = {
 
 export type EffectiveConfig = {
   enabled: boolean;
+  anthropicServerAuto: AnthropicServerAutoMode;
   classifierModel?: string;
   classifierReasoningLevel?: ClassifierReasoningLevel;
   classifyReadOnlyTools: boolean;
@@ -130,6 +148,7 @@ export type DenialRecord = {
     | "permissions.ask"
     | "deterministic-hard-deny"
     | "deterministic-path-deny"
+    | "anthropic-server"
     | "classifier"
     | "setup";
 };
