@@ -1,6 +1,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DENIAL_HISTORY_LIMIT } from "./constants.ts";
-import type { AutoModeState, DenialRecord, EffectiveConfig } from "./types.ts";
+import type {
+  AnthropicServerAutoFallbackDecision,
+  AnthropicServerAutoState,
+  AutoModeState,
+  DenialRecord,
+  EffectiveConfig,
+} from "./types.ts";
 import { safeJson, truncateMiddle } from "./utils.ts";
 
 export function pushDenial(state: AutoModeState, denial: DenialRecord): void {
@@ -26,11 +32,18 @@ export function statusLine(
 export function statusText(
   config: EffectiveConfig,
   state: AutoModeState,
+  serverAuto?: {
+    state: AnthropicServerAutoState;
+    fallbackDecision: AnthropicServerAutoFallbackDecision;
+  },
 ): string {
   return [
     `enabled: ${(state.enabledOverride ?? config.enabled) ? "yes" : "no"}`,
     `classifier: ${config.classifierModel ?? "current session model"}`,
     `classifier reasoning: ${config.classifierReasoningLevel ?? "server default"}`,
+    `anthropic server Auto mode: ${config.anthropicServerAuto}`,
+    `runtime state: ${serverAuto?.state ?? "unknown"}`,
+    `fallback decision: ${serverAuto?.fallbackDecision ?? "none"}`,
     `checked actions: ${state.checkedActions}`,
     `blocked actions: ${state.blockedActions}`,
     `classifier allowed: ${state.classifierAllowed}`,

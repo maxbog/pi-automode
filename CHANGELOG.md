@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## New features
+
+- **Anthropic server Auto modes (experimental)** — Add opt-in `"prefer"` and `"confirm-fallback"` modes for direct Anthropic Messages sessions. Negotiate server review in-band, keep capability/fallback state runtime-only, send policy with observed location/platform context, and fail closed when an active session lacks a correlated verdict.
+
 ## Bug fixes
 
 - **System-wide delete checks** — Block recursive deletion of `/Users` and its subdirectories. Check the search root after `find -H`, `-L`, or `-P` before `-delete`.

@@ -11,6 +11,7 @@ import { dirname, resolve } from "node:path";
 import {
   DEFAULT_ALLOW,
   DEFAULT_ALLOW_INSIDE_WORKING_DIRECTORY,
+  DEFAULT_ANTHROPIC_SERVER_AUTO,
   DEFAULT_CLASSIFIER_TIMEOUT_MS,
   DEFAULT_CLASSIFY_READ_ONLY_TOOLS,
   DEFAULT_DENIED_PATHS,
@@ -35,6 +36,7 @@ import {
   parseToolPattern,
 } from "./permissions.ts";
 import type {
+  AnthropicServerAutoMode,
   AutoModeSettings,
   ClassifierReasoningLevel,
   ConfigLoadResult,
@@ -280,6 +282,7 @@ export function validateSettingsFile(
       const autoMode = settings.autoMode as Record<string, unknown>;
       const knownAutoMode = new Set([
         "enabled",
+        "anthropicServerAuto",
         "classifierModel",
         "classifierReasoningLevel",
         "classifierTimeoutMs",
@@ -307,6 +310,13 @@ export function validateSettingsFile(
         hasOwn(autoMode, "enabled") && typeof autoMode.enabled !== "boolean"
       ) {
         diagnostics.push(`${source}: autoMode.enabled must be a boolean`);
+      }
+      if (hasOwn(autoMode, "anthropicServerAuto")) {
+        validateAnthropicServerAutoSetting(
+          autoMode.anthropicServerAuto,
+          source,
+          diagnostics,
+        );
       }
       if (
         hasOwn(autoMode, "classifierModel") &&
@@ -617,6 +627,9 @@ function applyAutoModeScalars(
   return {
     ...base,
     enabled: typeof settings.enabled === "boolean" ? settings.enabled : base.enabled,
+    anthropicServerAuto: isAnthropicServerAutoMode(settings.anthropicServerAuto)
+      ? settings.anthropicServerAuto
+      : base.anthropicServerAuto,
     classifierModel: isValidClassifierModel(settings.classifierModel)
       ? settings.classifierModel
       : base.classifierModel,
@@ -654,6 +667,25 @@ function applyAutoModeScalars(
   };
 }
 
+function isAnthropicServerAutoMode(
+  value: unknown,
+): value is AnthropicServerAutoMode {
+  return value === "off" || value === "prefer" ||
+    value === "confirm-fallback";
+}
+
+function validateAnthropicServerAutoSetting(
+  value: unknown,
+  source: string,
+  diagnostics: string[],
+): void {
+  if (!isAnthropicServerAutoMode(value)) {
+    diagnostics.push(
+      `${source}: autoMode.anthropicServerAuto must be off, prefer, or confirm-fallback`,
+    );
+  }
+}
+
 function appendPermissionPatterns(
   target: ToolPattern[],
   settings: SettingsFile | undefined,
@@ -683,6 +715,7 @@ export function buildEffectiveConfigFromSources(
 ): EffectiveConfig {
   let config: EffectiveConfig = {
     enabled: true,
+    anthropicServerAuto: DEFAULT_ANTHROPIC_SERVER_AUTO,
     classifyReadOnlyTools: DEFAULT_CLASSIFY_READ_ONLY_TOOLS,
     allowInsideWorkingDirectory: DEFAULT_ALLOW_INSIDE_WORKING_DIRECTORY,
     deniedPaths: [...DEFAULT_DENIED_PATHS],

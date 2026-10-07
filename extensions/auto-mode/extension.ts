@@ -62,6 +62,12 @@ import {
   statusLine,
   statusText,
 } from "./state.ts";
+import {
+  addServerAutoRequestFields,
+  AnthropicServerAutoSession,
+  buildAnthropicServerAutoContext,
+  isAnthropicServerAutoEligibleModel,
+} from "./server-auto.ts";
 import { loadedContextFromSystemPromptOptions } from "./transcript.ts";
 import type {
   AutoModeState,
@@ -78,6 +84,11 @@ import { safeJson, truncateMiddle } from "./utils.ts";
 const INSPECT_TOOL = "automode_inspect";
 const INSPECTION_ACTIONS = ["status", "config", "defaults", "denials"] as const;
 type InspectionAction = (typeof INSPECTION_ACTIONS)[number];
+type ServerAutoDiagnosticCode =
+  | "server_capability_activated"
+  | "server_capability_unsupported"
+  | "fallback_local_approved"
+  | "fallback_local_declined";
 
 function matchedCommandSummary(command: string | undefined): string | undefined {
   return command ? truncateMiddle(command, 500) : undefined;
@@ -113,6 +124,12 @@ function projectIsTrusted(
   return typeof ctx.isProjectTrusted === "function"
     ? ctx.isProjectTrusted()
     : false;
+}
+
+function payloadModel(payload: unknown): unknown {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).model
+    : undefined;
 }
 
 export type PiAutomodeOptions = {
@@ -228,6 +245,7 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
     };
     let loadedContext = "";
     let globalConfigNoticeShown = false;
+    const anthropicServerAuto = new AnthropicServerAutoSession();
 
     function effectiveConfig(): EffectiveConfig {
       return {
@@ -265,10 +283,14 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
     ): unknown {
       const cfg = effectiveConfig();
       if (action === "status") {
+        const serverAutoStatus = anthropicServerAuto.status(ctx.model);
         const status = [
           `enabled: ${cfg.enabled ? "yes" : "no"}`,
           `classifier: ${cfg.classifierModel ?? "current session model"}`,
           `classifier reasoning: ${cfg.classifierReasoningLevel ?? "server default"}`,
+          `anthropic server Auto mode: ${cfg.anthropicServerAuto}`,
+          `runtime state: ${serverAutoStatus.state}`,
+          `fallback decision: ${serverAutoStatus.fallbackDecision}`,
           `checked actions: ${state.checkedActions}`,
           `blocked actions: ${state.blockedActions}`,
           `classifier allowed: ${state.classifierAllowed}`,
@@ -287,6 +309,9 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
           status,
           state: {
             enabledOverride: state.enabledOverride,
+            anthropicServerAuto: cfg.anthropicServerAuto,
+            anthropicServerAutoState: serverAutoStatus.state,
+            anthropicServerAutoFallback: serverAutoStatus.fallbackDecision,
             lastDecision: state.lastDecision,
             checkedActions: state.checkedActions,
             blockedActions: state.blockedActions,
@@ -405,7 +430,121 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       return undefined;
     }
 
+    async function applyServerAutoFallback(
+      ctx: ExtensionContext,
+      cfg: EffectiveConfig,
+      toolName: string,
+      summary: string,
+      logCtx: LogCtx,
+    ): Promise<{ block: true; reason: string } | undefined> {
+      const reason = "Anthropic server Auto is unsupported for this session";
+      const runtime = anthropicServerAuto.status(ctx.model);
+      if (runtime.fallbackDecision === "local-approved") return undefined;
+      if (runtime.fallbackDecision === "local-declined") {
+        return block(ctx, {
+          timestamp: Date.now(),
+          toolName,
+          reason: `${reason}; local-classifier fallback was declined for this session`,
+          action: summary,
+          kind: "anthropic-server",
+        }, logCtx);
+      }
+      if (cfg.anthropicServerAuto === "prefer") {
+        anthropicServerAuto.setFallbackDecision(
+          ctx.model,
+          "local-approved",
+        );
+        logServerAutoEvent(ctx, cfg, "fallback_local_approved");
+        return undefined;
+      }
+      if (cfg.anthropicServerAuto !== "confirm-fallback" || !ctx.hasUI) {
+        anthropicServerAuto.setFallbackDecision(
+          ctx.model,
+          "local-declined",
+        );
+        logServerAutoEvent(ctx, cfg, "fallback_local_declined");
+        return block(ctx, {
+          timestamp: Date.now(),
+          toolName,
+          reason: `${reason}; interactive fallback confirmation is unavailable`,
+          action: summary,
+          kind: "anthropic-server",
+        }, logCtx);
+      }
+      const continueToClassifier = await ctx.ui.confirm(
+        "Anthropic server Auto unavailable",
+        "Anthropic server-side Auto is unavailable for this session.\n\nFall back to pi-automode's normal classifier for the rest of this session?",
+        { signal: ctx.signal },
+      );
+      if (!continueToClassifier && ctx.signal?.aborted) {
+        // An aborted dialog is not a user decision; ask again next time.
+        return block(ctx, {
+          timestamp: Date.now(),
+          toolName,
+          reason: `${reason}; local classifier fallback confirmation was aborted`,
+          action: summary,
+          kind: "anthropic-server",
+        }, logCtx);
+      }
+      anthropicServerAuto.setFallbackDecision(
+        ctx.model,
+        continueToClassifier ? "local-approved" : "local-declined",
+      );
+      logServerAutoEvent(
+        ctx,
+        cfg,
+        continueToClassifier
+          ? "fallback_local_approved"
+          : "fallback_local_declined",
+      );
+      if (!continueToClassifier) {
+        return block(ctx, {
+          timestamp: Date.now(),
+          toolName,
+          reason: `${reason}; declined local classifier fallback`,
+          action: summary,
+          kind: "anthropic-server",
+        }, logCtx);
+      }
+      return undefined;
+    }
+
+    function logServerAutoEvent(
+      ctx: ExtensionContext,
+      cfg: EffectiveConfig,
+      code: ServerAutoDiagnosticCode,
+    ): void {
+      if (!cfg.log.enabled) return;
+      const messages: Record<ServerAutoDiagnosticCode, string> = {
+        server_capability_activated:
+          "Anthropic server Auto capability was activated for this session.",
+        server_capability_unsupported:
+          "Anthropic server Auto capability is unsupported for this session.",
+        fallback_local_approved:
+          "Local classifier fallback was approved for this session.",
+        fallback_local_declined:
+          "Local classifier fallback was declined for this session.",
+      };
+      const logger = createLogger({
+        enabled: cfg.log.enabled,
+        classifierIo: cfg.log.classifierIo,
+        sessionFile: ctx.sessionManager.getSessionFile?.(),
+        sessionDir: ctx.sessionManager.getSessionDir?.() ?? "",
+        sessionCwd: ctx.cwd,
+        sessionId: ctx.sessionManager.getSessionId?.() ?? "unknown",
+        logRoot: options.logRoot,
+        now: now(),
+      });
+      logger.append({
+        type: "diagnostic",
+        ts: new Date().toISOString(),
+        code,
+        message: messages[code],
+      });
+    }
+
     pi.on("session_start", (_event, ctx) => {
+      anthropicServerAuto.clear();
       loadResult = loadConfigWithDiagnostics(
         ctx.cwd,
         projectIsTrusted(ctx),
@@ -427,6 +566,49 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       updateUi(ctx);
     });
 
+    pi.on("turn_start", () => {
+      anthropicServerAuto.clearTurn();
+    });
+
+    pi.on("before_provider_request", (event, ctx) => {
+      const cfg = effectiveConfig();
+      if (
+        !cfg.enabled ||
+        cfg.anthropicServerAuto === "off" ||
+        !isAnthropicServerAutoEligibleModel(
+          ctx.model,
+          payloadModel(event.payload),
+        )
+      ) {
+        return undefined;
+      }
+      if (anthropicServerAuto.status(ctx.model).state === "unsupported") {
+        return undefined;
+      }
+
+      const autoModeContext = buildAnthropicServerAutoContext(cfg, ctx);
+      const payload = addServerAutoRequestFields(
+        event.payload,
+        autoModeContext,
+      );
+      if (!payload) return undefined;
+      anthropicServerAuto.beginResponse(ctx.model);
+      return payload;
+    });
+
+    pi.on("provider_stream_event", (event, ctx) => {
+      const previous = anthropicServerAuto.status(ctx.model).state;
+      if (!anthropicServerAuto.observeProviderEvent(event)) return;
+      const next = anthropicServerAuto.status(ctx.model).state;
+      if (previous !== "active" && next === "active") {
+        logServerAutoEvent(
+          ctx,
+          effectiveConfig(),
+          "server_capability_activated",
+        );
+      }
+    });
+
     pi.on("before_agent_start", (event) => {
       const cfg = effectiveConfig();
       if (!cfg.enabled) return undefined;
@@ -442,9 +624,10 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       // 2. deterministic hard-deny checks that never consult the model,
       // 3. extension-owned read-only inspection tool,
       // 4. deterministic path denials,
-      // 5. accepted ask rules force classifier review and skip all allow tiers,
+      // 5. accepted ask rules require semantic review and skip all allow tiers,
       // 6. inside-CWD, permissions.allow, and read-only allow tiers,
-      // 7. classifier for every remaining action, fail-closed on setup/parse errors.
+      // 7. Anthropic server Auto for eligible direct-provider actions,
+      // 8. classifier for every remaining action, fail-closed on setup/parse errors.
       const cfg = effectiveConfig();
       if (!cfg.enabled) return undefined;
 
@@ -746,6 +929,68 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
         );
       }
 
+      if (
+        cfg.anthropicServerAuto !== "off" &&
+        isAnthropicServerAutoEligibleModel(ctx.model)
+      ) {
+        const previousServerAutoState =
+          anthropicServerAuto.status(ctx.model).state;
+        const serverAutoReview = anthropicServerAuto.consume(
+          event.toolCallId,
+          ctx.model,
+        );
+        const serverAutoState = anthropicServerAuto.status(ctx.model).state;
+        if (
+          previousServerAutoState !== "unsupported" &&
+          serverAutoState === "unsupported"
+        ) {
+          logServerAutoEvent(ctx, cfg, "server_capability_unsupported");
+        }
+        if (
+          serverAutoState === "active" &&
+          serverAutoReview === "passed"
+        ) {
+          return allow(
+            ctx,
+            "anthropic-server",
+            "Anthropic server safeguard passed this tool use",
+            event.toolName,
+            summary,
+            logCtx,
+          );
+        }
+        if (serverAutoState === "active") {
+          return block(ctx, {
+            timestamp: Date.now(),
+            toolName: event.toolName,
+            reason: serverAutoReview === "blocked"
+              ? "Anthropic server safeguard flagged this tool use"
+              : "Active Anthropic server Auto session returned no usable verdict",
+            action: summary,
+            kind: "anthropic-server",
+          }, logCtx);
+        }
+        if (serverAutoState === "unsupported") {
+          const fallback = await applyServerAutoFallback(
+            ctx,
+            cfg,
+            event.toolName,
+            summary,
+            logCtx,
+          );
+          if (fallback) return fallback;
+        } else {
+          return block(ctx, {
+            timestamp: Date.now(),
+            toolName: event.toolName,
+            reason:
+              "Anthropic server Auto has not completed a review for this tool use",
+            action: summary,
+            kind: "anthropic-server",
+          }, logCtx);
+        }
+      }
+
       const decision = await classify(
         ctx,
         cfg,
@@ -808,7 +1053,14 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       const remainder = rest.join(" ").trim();
 
       if (command === "status") {
-        ctx.ui.notify(statusText(effectiveConfig(), state), "info");
+        ctx.ui.notify(
+          statusText(
+            effectiveConfig(),
+            state,
+            anthropicServerAuto.status(ctx.model),
+          ),
+          "info",
+        );
         return;
       }
       if (command === "on") {
@@ -826,12 +1078,16 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
         return;
       }
       if (command === "reload") {
+        const previousServerAutoMode = config.anthropicServerAuto;
         loadResult = loadConfigWithDiagnostics(
           ctx.cwd,
           projectIsTrusted(ctx),
         );
         config = loadResult.config;
         configDiagnostics = loadResult.diagnostics;
+        if (config.anthropicServerAuto !== previousServerAutoMode) {
+          anthropicServerAuto.clear();
+        }
         persist();
         updateUi(ctx);
         ctx.ui.notify(

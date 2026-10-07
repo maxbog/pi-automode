@@ -134,6 +134,36 @@ Both stages receive the complete current tool input in a dedicated message. Tran
 Both stages use a classifier-specific session key. They request short cache retention from providers that support it. A missing model, provider failure, or invalid response blocks the action.
 Pi-automode parses Bash structure with `unbash` before permission and deterministic hard-deny checks. The analysis includes nested commands and literal shell-wrapper scripts. A Bash parse error blocks the action.
 
+## Anthropic server Auto (experimental)
+
+Pi-automode can optionally use Anthropic's server-side tool-use review instead of its local classifier for eligible direct Anthropic models.
+
+The feature is off by default:
+
+```json
+{
+  "autoMode": {
+    "anthropicServerAuto": "prefer"
+  }
+}
+```
+
+`anthropicServerAuto` accepts:
+
+- `"off"` — use the existing pi-automode classifier.
+- `"prefer"` — use Anthropic server review when available; if the current Anthropic session does not support it, fall back to the existing local classifier.
+- `"confirm-fallback"` — use Anthropic server review when available; if it is unsupported, ask once before falling back to the local classifier.
+
+Only direct Anthropic Messages sessions are eligible. Claude models accessed through GitHub Copilot continue to use pi-automode's local classifier.
+
+A correlated `not_flagged` server verdict passes the semantic-review stage without making a second classifier request. A `flagged` verdict blocks the action. Missing, malformed, unknown, or mismatched verdicts fail closed.
+
+Pi-automode's existing permission rules, deterministic hard-denies, path controls, and local allow tiers keep their normal precedence.
+
+Server Auto requires Pi 1.0.0 or newer. Anthropic's safeguard protocol is experimental, so this integration is also considered experimental.
+
+See [Configuration](docs/configuration.md#anthropic-server-auto-experimental) for negotiation, fallback, classifier-context, and compatibility details.
+
 ## Examples
 
 - `examples/automode.local.json`: copy to `.pi/automode.local.json` in a project and edit the domains, buckets, and source-control org.
