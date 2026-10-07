@@ -74,9 +74,10 @@ export function isAnthropicServerAutoEligibleModel(
   const modelId = candidate.id;
   if (typeof modelId !== "string") return false;
   if (/^claude-fable-\d/i.test(modelId)) return true;
-  const match = /^claude-(?:sonnet|opus)-(\d+)(?:-(\d+))?(?:-|$)/i.exec(
-    modelId,
-  );
+  // The minor is at most two digits so an 8-digit date suffix such as
+  // `claude-sonnet-4-20250514` is not read as minor version 20250514.
+  const match = /^claude-(?:sonnet|opus)-(\d+)(?:-(\d{1,2})(?!\d))?(?:-|$)/i
+    .exec(modelId);
   if (!match) return false;
   const major = Number(match[1]);
   const minor = Number(match[2] ?? 0);

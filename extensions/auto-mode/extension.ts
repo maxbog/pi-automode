@@ -64,9 +64,9 @@ import {
 } from "./state.ts";
 import {
   addServerAutoRequestFields,
+  AnthropicServerAutoSession,
   buildAnthropicServerAutoContext,
   isAnthropicServerAutoEligibleModel,
-  AnthropicServerAutoSession,
 } from "./server-auto.ts";
 import { loadedContextFromSystemPromptOptions } from "./transcript.ts";
 import type {
@@ -476,6 +476,16 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
         "Anthropic server-side Auto is unavailable for this session.\n\nFall back to pi-automode's normal classifier for the rest of this session?",
         { signal: ctx.signal },
       );
+      if (!continueToClassifier && ctx.signal?.aborted) {
+        // An aborted dialog is not a user decision; ask again next time.
+        return block(ctx, {
+          timestamp: Date.now(),
+          toolName,
+          reason: `${reason}; local classifier fallback confirmation was aborted`,
+          action: summary,
+          kind: "anthropic-server",
+        }, logCtx);
+      }
       anthropicServerAuto.setFallbackDecision(
         ctx.model,
         continueToClassifier ? "local-approved" : "local-declined",

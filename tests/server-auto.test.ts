@@ -284,6 +284,9 @@ test("direct Anthropic eligibility requires the provider API and supported model
 	const harness = await setupServerAuto();
 	for (const model of [
 		{ ...directAnthropic, id: "claude-sonnet-4-5" },
+		{ ...directAnthropic, id: "claude-sonnet-4-20250514" },
+		{ ...directAnthropic, id: "claude-opus-4-20250514" },
+		{ ...directAnthropic, id: "claude-opus-4-1-20250805" },
 		{ ...directAnthropic, provider: "github-copilot" },
 		{ ...directAnthropic, api: "openai-completions" },
 	]) {
@@ -456,6 +459,31 @@ test("confirm-fallback asks once, then uses the local classifier for the session
 	assert.equal(await toolCall(harness, "tool-2"), undefined);
 	assert.equal(confirmations, 1);
 	assert.equal(harness.classifierCalls, 2);
+	assert.equal((await runtimeStatus(harness)).anthropicServerAutoFallback, "local-approved");
+});
+
+test("confirm-fallback does not remember an aborted confirmation as a decline", async () => {
+	const harness = await setupServerAuto("confirm-fallback");
+	const controller = new AbortController();
+	harness.ctx.signal = controller.signal;
+	let confirmations = 0;
+	harness.ctx.ui.confirm = async () => {
+		confirmations += 1;
+		if (confirmations === 1) {
+			controller.abort();
+			return false;
+		}
+		return true;
+	};
+	await request(harness);
+	await toolResponse(harness, "tool-1");
+	assert.equal((await toolCall(harness, "tool-1"))?.block, true);
+	assert.equal((await runtimeStatus(harness)).anthropicServerAutoFallback, "none");
+
+	harness.ctx.signal = undefined;
+	await request(harness);
+	assert.equal(await toolCall(harness, "tool-2"), undefined);
+	assert.equal(confirmations, 2);
 	assert.equal((await runtimeStatus(harness)).anthropicServerAutoFallback, "local-approved");
 });
 

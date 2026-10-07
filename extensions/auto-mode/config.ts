@@ -36,8 +36,8 @@ import {
   parseToolPattern,
 } from "./permissions.ts";
 import type {
-  AutoModeSettings,
   AnthropicServerAutoMode,
+  AutoModeSettings,
   ClassifierReasoningLevel,
   ConfigLoadResult,
   EffectiveConfig,

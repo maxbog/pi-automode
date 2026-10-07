@@ -111,11 +111,5 @@ export function restoreState(ctx: ExtensionContext): AutoModeState {
         : [],
     };
   }
-  return {
-    checkedActions: 0,
-    blockedActions: 0,
-    classifierAllowed: 0,
-    classifierDenied: 0,
-    recentDenials: [],
-  };
+  return { checkedActions: 0, blockedActions: 0, classifierAllowed: 0, classifierDenied: 0, recentDenials: [] };
 }
