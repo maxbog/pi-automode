@@ -1,0 +1,47 @@
+{
+  "autoMode": {
+    "classifierModel": "local-guard/qwen3.5:4b-mxfp8",
+    "classifierReasoningLevel": "low",
+    "classifyReadOnlyTools": true,
+    "allowInsideWorkingDirectory": false,
+    "fastClassifierMaxTokens": 512,
+    "classifierTimeoutMs": 20000,
+    "maxUserTranscriptTokens": 4000,
+    "maxToolTranscriptTokens": 4000,
+    "environment": [
+      "$defaults",
+      "Working directory and trusted workspace: /worktree."
+    ],
+    "allow": [
+      "Read-only operations: file inspection, listing, searching, GET requests, and state queries that do not expose secrets in URLs or logs.",
+      "Local development operations inside the working tree: creating, editing, building, testing, linting, formatting, and deleting files created during the current task. This also includes modifying or deleting pre-existing files when a direct user authorization names the task, one repository or worktree, permitted path scopes, and the allowed operation.",
+      "Declared dependencies: installing packages already declared in package manifests or lockfiles with standard package-manager commands.",
+      "Standard credentials: reading credentials from the agent's own configured providers and sending them only to their intended provider.",
+      "Toolchain bootstrap from official installers or package registries for the language/toolchain used by the project."
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Git pushes require direct user authorization naming the remote and branch, including ordinary feature-branch pushes.",
+      "Creating, editing, or deleting files outside the trusted workspace requires direct user authorization naming the path and operation."
+    ],
+    "hard_deny": [
+      "$defaults",
+      "Accessing credential material outside the agent own configured model providers, or using AWS profiles, without direct user authorization naming the profile and action is forbidden."
+    ],
+    "deniedPaths": [
+      "~/.aws/*",
+      "~/.ssh/*",
+      "~/.config/gcloud/*",
+      "*.env"
+    ],
+    "log": {
+      "enabled": false,
+      "classifierIo": false
+    }
+  },
+  "permissions": {
+    "ask": [
+      "bash(git push *)"
+    ]
+  }
+}
