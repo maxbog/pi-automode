@@ -8,10 +8,10 @@ const blocked = async () => ({ decision: "block" as const, tier: "soft_deny" as 
 function contextWithChoice(choice: string | undefined, options: Record<string, unknown> = {}) {
   const ctx = createFakeCtx([], options);
   const prompts: string[] = [];
-  ctx.ui.select = async (title: string) => {
+  Object.assign(ctx.ui, { select: async (title: string) => {
     prompts.push(title);
     return choice;
-  };
+  } });
   return { ctx, prompts };
 }
 
