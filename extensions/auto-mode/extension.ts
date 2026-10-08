@@ -794,7 +794,7 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       // No UI or cancellation must fail closed. Only classifier decisions
       // can be overridden; explicit permissions and deterministic denies
       // have already returned above and are never bypassed.
-      if (ctx.hasUI && !ctx.signal?.aborted) {
+      if (decision.tier !== "hard_deny" && ctx.hasUI && !ctx.signal?.aborted) {
         const choice = await ctx.ui.select(
           `Auto mode blocked ${event.toolName}: ${truncateMiddle(summary, 250)} — ${truncateMiddle(decision.reason, 180)}`,
           [
@@ -802,10 +802,7 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
             "Allow once",
             "Allow this exact action for this session",
           ],
-          {
-            signal: ctx.signal,
-            // The prompt contains the exact rejected payload and reason.
-          },
+          { signal: ctx.signal },
         );
         if (!ctx.signal?.aborted && choice === "Allow once") {
           ctx.ui.notify(`Approved once: ${truncateMiddle(summary, 120)}\nClassifier: ${decision.reason}`, "warning");
