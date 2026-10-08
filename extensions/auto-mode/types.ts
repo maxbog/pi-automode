@@ -139,7 +139,8 @@ export type DecisionKind =
   | DenialRecord["kind"]
   | "permissions.allow"
   | "read-only"
-  | "inside-working-directory";
+  | "inside-working-directory"
+  | "interactive-approval";
 
 export type ClassificationDecision = {
   decision: "allow" | "block";
