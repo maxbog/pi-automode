@@ -228,6 +228,18 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
     };
     let loadedContext = "";
     let globalConfigNoticeShown = false;
+    // Explicit session approvals are runtime-only, never persisted or exposed to the model.
+    // Exact tool inputs, CWD and session identity must all match on retry.
+    const sessionApprovals = new Set<string>();
+
+    function approvalKey(ctx: ExtensionContext, toolName: string, input: Record<string, unknown>): string {
+      return JSON.stringify([
+        ctx.sessionManager.getSessionId?.() ?? "",
+        ctx.cwd,
+        toolName,
+        input,
+      ]);
+    }
 
     function effectiveConfig(): EffectiveConfig {
       return {
@@ -406,6 +418,7 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
     }
 
     pi.on("session_start", (_event, ctx) => {
+      sessionApprovals.clear();
       loadResult = loadConfigWithDiagnostics(
         ctx.cwd,
         projectIsTrusted(ctx),
@@ -746,6 +759,18 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
         );
       }
 
+      const approvedKey = approvalKey(ctx, event.toolName, input);
+      if (sessionApprovals.has(approvedKey)) {
+        return allow(
+          ctx,
+          "interactive-approval",
+          "Previously approved exact action for this session",
+          event.toolName,
+          summary,
+          logCtx,
+        );
+      }
+
       const decision = await classify(
         ctx,
         cfg,
@@ -766,6 +791,32 @@ export function createPiAutomode(options: PiAutomodeOptions = {}) {
       }
 
       state.classifierDenied += 1;
+      // No UI or cancellation must fail closed. Only classifier decisions
+      // can be overridden; explicit permissions and deterministic denies
+      // have already returned above and are never bypassed.
+      if (ctx.hasUI && !ctx.signal?.aborted) {
+        const choice = await ctx.ui.select(
+          `Auto mode blocked ${event.toolName}: ${truncateMiddle(summary, 250)} — ${truncateMiddle(decision.reason, 180)}`,
+          [
+            "Deny",
+            "Allow once",
+            "Allow this exact action for this session",
+          ],
+          {
+            signal: ctx.signal,
+            // The prompt contains the exact rejected payload and reason.
+          },
+        );
+        if (!ctx.signal?.aborted && choice === "Allow once") {
+          ctx.ui.notify(`Approved once: ${truncateMiddle(summary, 120)}\nClassifier: ${decision.reason}`, "warning");
+          return allow(ctx, "interactive-approval", `User approved once after classifier block: ${decision.reason}`, event.toolName, summary, logCtx);
+        }
+        if (!ctx.signal?.aborted && choice === "Allow this exact action for this session") {
+          sessionApprovals.add(approvedKey);
+          ctx.ui.notify(`Approved for this session: ${truncateMiddle(summary, 120)}\nClassifier: ${decision.reason}`, "warning");
+          return allow(ctx, "interactive-approval", `User approved exact action for session after classifier block: ${decision.reason}`, event.toolName, summary, logCtx);
+        }
+      }
       return block(ctx, {
         timestamp: Date.now(),
         toolName: event.toolName,
