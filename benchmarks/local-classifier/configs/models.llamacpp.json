@@ -1,0 +1,41 @@
+{
+  "providers": {
+    "local-guard": {
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "local-placeholder",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsStore": false,
+        "supportsStrictMode": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "permission-qwen4b",
+          "name": "qwen3.5:4b-mxfp8 classifier",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "samplingParams": {
+            "temperature": 0,
+            "seed": 42,
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

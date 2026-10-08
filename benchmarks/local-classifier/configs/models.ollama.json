@@ -1,0 +1,81 @@
+{
+  "providers": {
+    "local-guard": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "local-placeholder",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsStore": false,
+        "supportsStrictMode": false,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "qwen3.5:4b-mxfp8",
+          "name": "qwen3.5:4b-mxfp8 classifier",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "samplingParams": {
+            "temperature": 0,
+            "seed": 42,
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "qwen3.5:9b-mxfp8",
+          "name": "qwen3.5:9b-mxfp8 classifier",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "samplingParams": {
+            "temperature": 0,
+            "seed": 42,
+            "reasoning_effort": "none"
+          }
+        },
+        {
+          "id": "gemma4:12b-mlx",
+          "name": "gemma4:12b-mlx classifier",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "samplingParams": {
+            "temperature": 0,
+            "seed": 42,
+            "reasoning_effort": "none"
+          }
+        }
+      ]
+    }
+  }
+}
